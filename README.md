@@ -3,13 +3,15 @@
 ## Overview
 This library provides vessel and vehicle orientation information in [Signal K](https://signalk.org/) message format. Available orientation data include:
 * Attitude (yaw, pitch, roll)
-* Compass Heading
+* Compass Heading and Magnetic Heading (corrected for deviation)
 * Acceleration in 3 axes
 * Turn Rate
 * Pitch Rate
 * Roll Rate
 
 It uses a 9-axis combination accelerometer/magnetometer/gyroscope attached to an Espressif ESP32 or ESP8266 processor. Sensor fusion is performed by the ESP using a port of NXP's version 7 sensor fusion library, and formatted into Signal K by the SensESP library. SensESP also takes care of transferring the orientation data via WiFi to a Signal K server.
+
+Using the hardware below, Signal K messages containing heading data can be output at up to 40 Hz.
 
 ## Hardware
 Orientation sensing uses an NXP FXOS8700 and FXAS21002C/FXAS21002CQ combination sensor, like [the Adafruit 3463 module](https://www.adafruit.com/product/3463)
@@ -44,7 +46,8 @@ If you start with a basic configuration and proceed in small testable steps, it 
 * **Signal K** https://signalk.org/ for details on Signal K message contents, connectivity, units, display options.
 * **Signal K Server** https://github.com/SignalK/signalk-server a Signal K server intended for Raspberry Pi, Beaglebone, or UDOO platforms.
 * **SensESP** https://github.com/SignalK/SensESP for setting up an ESP32 or ESP8266 sensor and connecting it to a Signal K server. See also the Wiki at this location for additional advice on getting the built-in sensors reporting to the Signal K server.
-* **Sensor Fusion** https://github.com/BjarneBitscrambler/OrientationSensorFusion-ESP has details on the sensor fusion algorithm and orientation sensor performance in the Readme, Wiki, and Documentation sections
+* **Sensor Fusion** https://github.com/BjarneBitscrambler/OrientationSensorFusion-ESP has details on the sensor fusion algorithm and orientation sensor performance in the *Readme*, *Wiki*, and *Documentation* sections
+* **this library** Additional information, particularly relating to performing magnetic calibration, is in this project's *Wiki*.
 * **Contact Me** I can be contacted through the Discussions tab on the OrientationSensorFusion-ESP library: https://github.com/BjarneBitscrambler/OrientationSensorFusion-ESP/discussions
 
 ### ESP8266 Note Regarding Memory Use
