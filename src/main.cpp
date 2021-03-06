@@ -17,6 +17,7 @@
 #include "signalk_output.h"
 #include "sensors/bme280.h"
 #include "transforms/linear.h"
+#include "transforms/angle_correction.h"
 #include "sensesp_app_builder.h"
 // If using the Temperature report, then include linear.h as the
 // linear transform enables temperature readings to be calibrated.
@@ -59,12 +60,13 @@ ReactESP app([]() {
               ->set_hostname("CompassBME280")
               ->set_sk_server("10.10.10.1", 3000)
               ->get_app();
+   
   /**
    * The "SignalK path" identifies this sensor to the Signal K server. Leaving
    * this blank would indicate this particular sensor or transform does not
    * broadcast Signal K data.
    * If you have multiple sensors connected to your microcontroller (ESP),
-   * each of them will (probably) have its own Signal K path variable. For
+   * each of them will probably have its own Signal K path variable. For
    * example, if you have two propulsion engines, and you want the RPM of
    * each of them to go to Signal K, you might have
    * sk_path_portEngine = "propulsion.port.revolutions" and
@@ -73,30 +75,47 @@ ReactESP app([]() {
    * @see https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
    *
    * Vessel heading can be reported as headingCompass (uncorrected for
-   * Deviation) or as part of an attitude data group (i.e. yaw, pitch, roll).
-   * This example provides both.
-   * 
-   * Calibration corrects for hard-/soft-iron deviation(?) so this should be
-   * headingMagnetic?
-   *
+   * Deviation), headingMagnetic (corrected for Devations),
+   * or as part of an attitude data group (i.e. yaw, pitch, roll).
+   * All three paths are defined in the Signal K spec and have default
+   * display widgets in the Signal K Instrument Panel.
    */
-  const char* kSKPathHeading = "navigation.headingMagnetic";
-  const char* kSKPathAttitude = "navigation.attitude";
+  const char* kSKPathHeadingCompass  = "navigation.headingCompass";
+  const char* kSKPathHeadingMagnetic = "navigation.headingMagnetic";
+  const char* kSKPathAttitude        = "navigation.attitude";
   /**
-   * This example shows heading, pitch, and roll. If you want other parameters
-   * as well, uncomment the appropriate path(s) from the following.
+   * This example reports heading, pitch, and roll. If you want other parameters
+   * as well, uncomment the appropriate SKpath(s) from the following.
    * Signal K v1.5 does not describe paths for roll rate and pitch rate
    * so these are provided using the same pattern as for rateOfTurn.
    * Signal K v1.5 says path for temperature can include zone.
    * Replace ecompass with a different zone if desired.
    * Signal K v1.5 does not describe a path for acceleration.
    */
-  // const char* kSKPathTurnRate   = "navigation.rateOfTurn";
-  // const char* kSKPathRollRate   = "navigation.rateOfRoll";
-  // const char* kSKPathPitchRate  = "navigation.rateOfPitch";
-  // const char* kSKPathTemperature =
-  //                "environment.inside.ecompass.temperature"; 
-  // const char* kSKPathAccel = "sensors.accelerometer.accel_xyz";
+  //const char* kSKPathTurnRate    = "navigation.rateOfTurn";
+  //const char* kSKPathRollRate    = "navigation.rateOfRoll";
+  //const char* kSKPathPitchRate   = "navigation.rateOfPitch";
+  //const char* kSKPathTemperature =
+  //               "environment.inside.ecompass.temperature";
+  //const char* kSKPathAccel       = "sensors.accelerometer.accel_xyz";
+  /**
+   * The following SKpaths are useful when performing magnetic calibration,
+   * and for confirming that the current magnetic environment of the sensor
+   * is unchanged from the most recent saved calibration. None of these
+   * parameters has a defined path in Signal K, so they may be changed to suit.
+   * 
+   * For more details and suggestions on how to perform magnetic calibration,
+   * see the Wiki at
+   * @see https://github.com/BjarneBitscrambler/SignalK-Orientation/wiki
+   */
+  const char* kSKPathMagFit          = "orientation.calibration.magfit";
+  const char* kSKPathMagFitTrial     = "orientation.calibration.magfittrial";
+  const char* kSKPathMagSolver       = "orientation.calibration.magsolver";
+  //const char* kSKPathMagInclination  = "orientation.calibration.maginclination";
+  //const char* kSKPathkMagBValue      = "orientation.calibration.magmagnitude";
+  //const char* kSKPathkMagBValueTrial = "orientation.calibration.magmagnitudetrial";
+  //const char* kSKPathkMagNoise       = "orientation.calibration.magnoise";
+  //const char* kSKPathkMagCalValues   = "orientation.calibration.magvalues";
 
   /**
    * If you are creating a new Signal K path that does not
@@ -105,7 +124,8 @@ ReactESP app([]() {
    * metadata will be reported to the Signal K server the first
    * time your sensor reports its value(s) to the server.
    */
-  // Uncomment from the following as needed.
+  // Uncomment from the following example metadata as needed, or create
+  // your own as needed.
   //   SKMetadata* metadata_accel = new SKMetadata();
   //   metadata_accel->description_ = "Acceleration in X,Y,Z axes";
   //   metadata_accel->display_name_ = "Accelerometer";
@@ -128,7 +148,7 @@ ReactESP app([]() {
   //
   //   SKMetadata* metadata_temperature = new SKMetadata();
   //   metadata_temperature->description_ =
-  //        "Temperature reported by orientation sensor"
+  //        "Temperature reported by orientation sensor";
   //   metadata_temperature->display_name_ = "Temperature at eCompass";
   //   metadata_temperature->short_name_ = "Temp";
   //   metadata_temperature->units_ = "K";
@@ -144,20 +164,28 @@ ReactESP app([]() {
    * run-time configuration.
    * These two are necessary until a method is created to synthesize them.
    * 
-   * Above arrangement of config paths yields this web interface structure:
    * Note the hardware sensor itself has no run-time configurable items.
+   * Note the empty "" for configuring the SK paths for attitude and 
+   * heading: this is because the paths for these parameters are
+   * prescribed by the SK spec, and default instruments expect these
+   * paths. You can override them, but will then need to define your
+   * own instruments to display the data.
+   * 
+   * Below arrangement of config paths yields this web interface structure:
+   * 
        sensors->attitude
-                       ->sk_path
-                       ->value_settings
+                       ->value_settings (adjusts report interval, saves mag cal)
               ->heading
-                       ->sk_path
-                       ->value_settings
+                       ->value_settings (adjusts report interval, saves mag cal)
+                       ->deviation      (adjusts compass deviation)
    * 
    */
-  const char* kConfigPathAttitude = "/sensors/attitude/value_settings";
-  const char* kConfigPathAttitude_SK = "/sensors/attitude/sk";
-  const char* kConfigPathHeading = "/sensors/heading/value_settings";
-  const char* kConfigPathHeading_SK = "/sensors/heading/sk";
+  const char* kConfigPathAttitude_SK = "";
+  const char* kConfigPathAttitude    = "/sensors/attitude/value_settings";
+  const char* kConfigPathHeading_SKC = "";
+  const char* kConfigPathHeading_SKM = "";
+  const char* kConfigPathHeading     = "/sensors/heading/value_settings";
+  const char* kConfigPathHeadingDev  = "/sensors/heading/deviation";
   // This example shows attitude and compass heading. If you want other parameters
   // as well, uncomment and modify the appropriate path(s) from the following 
   // or create new paths as needed.
@@ -187,97 +215,106 @@ ReactESP app([]() {
   auto* orientation_sensor = new OrientationSensor(
       PIN_I2C_SDA, PIN_I2C_SCL, BOARD_ACCEL_MAG_I2C_ADDR, BOARD_GYRO_I2C_ADDR);
 
-   /* TODO: It is possible to have an indication that the sensor is uncalibrated
-   *  but this has not been implemented.
-   */
-
   /*
-   * Create the desired outputs from orientation sensor. Note that the physical
+   * Create the desired outputs from the orientation sensor. Note that the physical
    * sensor is read at whatever rate is specified in the Sensor Fusion library's
    * build.h file (#define FUSION_HZ), currently set to 40 Hz. Fusion
    * calculations are run at that same rate. This is different than, and
    * usually faster than, the rate at which orientation parameters are output.
    * Reportng orientation values within SensESP can happen at any desired
    * rate, though if it is more often than the fusion rate then
-   * there will be duplicated values. This example uses a 10 Hz outout rate.
+   * there will be duplicated values. This example uses a 10 Hz output rate.
    * It is not necessary that all the values be output at the same rate (for
    * example, it likely makes sense to report temperature at a slower rate).
    */
+  
+  // Create the Compass Heading and Magnetic Heading outputs. The difference
+  // between the two, in this example, is that the Magnetic Heading passes
+  // through a transform allowing one to correct for a fixed offset (such
+  // as occurs when the sensor's axis is not perfectly parallel with the 
+  // vessel's stern-bow axis).
   auto* sensor_heading = new OrientationValues(
       orientation_sensor, OrientationValues::kCompassHeading,
       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathHeading);
   sensor_heading->connect_to(
-      new SKOutputNumber(kSKPathHeading, kConfigPathHeading_SK));
-
+      new SKOutputNumber(kSKPathHeadingCompass, kConfigPathHeading_SKC))
+      //pass through transform. Set initial offset to 0.0 radians.
+      ->connect_to( new AngleCorrection( 0.0, 0.0, kConfigPathHeadingDev) )
+      //an optional, more complex transform is a CurveInterpolator
+      //->connect_to( new CurveInterpolator( NULL, "/sensors/heading/Magnetic") )
+      ->connect_to(
+      new SKOutputNumber(kSKPathHeadingMagnetic, kConfigPathHeading_SKM));
+  
+  // Create the Attitude output (yaw, pitch, roll). Note that this
+  // output does not pass through any transform to correct for residual
+  // deviation due to e.g. mounting offsets.
   auto* sensor_attitude = new AttitudeValues(
       orientation_sensor, ORIENTATION_REPORTING_INTERVAL_MS,
       kConfigPathAttitude);
   sensor_attitude->connect_to(
       new SKOutputAttitude(kSKPathAttitude, kConfigPathAttitude_SK));
 
-  // This example reports attitude and heading. If you want other parameters
-  // as well, uncomment the appropriate connections from the following.
-  //   auto* sensor_turn_rate = new OrientationValues(
-  //       orientation_sensor, OrientationValues::kRateOfTurn,
-  //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathTurnRate);
-  //   sensor_turn_rate->connect_to(
-  //       new SKOutputNumber(kSKPathTurnRate, kConfigPathTurnRate_SK));
-
-  //   auto* sensor_roll_rate = new OrientationValues(
-  //       orientation_sensor, OrientationValues::kRateOfRoll,
-  //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathRollRate);
-  //   sensor_roll_rate->connect_to(
-  //       new SKOutputNumber(kSKPathRollRate, kConfigPathRollRate_SK));
-
-  //   auto* sensor_pitch_rate = new OrientationValues(
-  //       orientation_sensor, OrientationValues::kRateOfPitch,
-  //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathPitchRate);
-  //   sensor_pitch_rate->connect_to(
-  //       new SKOutputNumber(kSKPathPitchRate, kConfigPathPitchRate_SK));
-
-  // TODO - it makes sense to send all three accel values (XYZ) in
-  // one SK package. The needed data structure is not yet defined in
-  // SensESP. The following sends the X accel as a single value.
-  //   auto* sensor_accel_x = new OrientationValues(
-  //       orientation_sensor, OrientationValues::kAccelerationX,
-  //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathAccelXYZ);
-  //   sensor_accel_x->connect_to(
-  //       new SKOutputNumber(kSKPathAccel, kConfigPathAccelXYZ_SK));
-
-  //   auto* sensor_temperature =
-  //       new OrientationValues(orientation_sensor,
-  //       OrientationValues::kTemperature,
-  //                             1000, kConfigPathTemperature);
-  //   sensor_temperature
-  //       ->connect_to(new Linear(1.0, 0.0, "/sensors/temperature/calibrate"))
-  //  Temperature readings are passed through a linear transform
-  //  to allow for calibration/linearization via web interface. Other
-  //  transforms are available. Ensure you #include the appropriate file(s).
-  //       ->connect_to(new SKOutputNumber(
-  //           kSKPathTemperature, kConfigPathTemperature_SK,
-  //           metadata_temperature));
-
   /**
-   *  Relationship of the Axes and the terminology:
-   * X,Y,Z are orthogonal, in a Right-handed coordinate system:
-   * think of the X axis pointing West, Y pointing South, and Z pointing up.
-   * On the Adafruit FXOS8700/FXAS21002 sensor PCB, the axes are printed
-   * on the top-side silkscreen.
+   * The following outputs are useful when calibrating. See the wiki at
+   * @see https://github.com/BjarneBitscrambler/SignalK-Orientation/wiki
+   * for details on how to interpret the values. None are recognized
+   * in the Signal K spec, so there is no prescribed SK path that they
+   * need to be sent to. 
    * 
-   * Acceleration is measured in the direction of the corresponding axis.
-   * 
-   * If the sensor is mounted with the X-axis pointing to the bow of the boat
-   * and the Y-axis pointing to Port, then Z points up and the following applies:
-   *  Heading is rotation about the Z-axis. It increases with rotation to starboard.
-   *  Pitch is rotation about the Y-axis. Positive is when the bow points up.
-   *  Roll is rotation about the X-axis. Positive is rolling to starboard.
-   *  Turn-rate is rotation about the Z-axis. Positive is increasing bearing.
-   *  Roll-rate is rotation about the X-axis. Positive is rolling to starboard.
-   *  Pitch-rate is rotation about the Y-axis. Positive is bow rising.
-   * 
-   * If the sensor is mounted differently, or you prefer an alternate nomenclature,
-   * the get___() methods in sensor_fusion_class.cpp can be adjusted.
-  */
+   * Because there are quite a few parameters, and they are likely only
+   * referred to infrequently (i.e. when calibrating, or when magnetic
+   * disturbances are suspected), you may want to configure the Signal K
+   * instrument panel to display these paths on a secondary screen, 
+   * separate from the primary navigation screen.
+   */
+  auto* sensor_cal_fit = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagCalFitInUse,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_cal_fit->connect_to(
+      new SKOutputNumber(kSKPathMagFit, ""));
+
+  auto* sensor_cal_candidate = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagCalFitTrial,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_cal_candidate->connect_to(
+      new SKOutputNumber(kSKPathMagFitTrial, ""));
+
+  auto* sensor_cal_order = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagCalAlgorithmSolver,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_cal_order->connect_to(
+      new SKOutputNumber(kSKPathMagSolver, ""));
+
+  // auto* sensor_b_mag = new OrientationValues(
+  //     orientation_sensor, OrientationValues::kMagInclination,
+  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  // sensor_b_mag->connect_to(
+  //     new SKOutputNumber(kSKPathMagInclination, ""));
+
+  // auto* sensor_b_mag = new OrientationValues(
+  //     orientation_sensor, OrientationValues::kMagFieldMagnitude,
+  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  // sensor_b_mag->connect_to(
+  //     new SKOutputNumber(kSKPathkMagBValue, ""));
+
+  // auto* sensor_b_mag = new OrientationValues(
+  //     orientation_sensor, OrientationValues::kMagFieldMagnitudeTrial,
+  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  // sensor_b_mag->connect_to(
+  //     new SKOutputNumber(kSKPathkMagBValueTrial, ""));
+
+  // auto* sensor_b_mag = new OrientationValues(
+  //     orientation_sensor, OrientationValues::kMagNoiseCovariance,
+  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  // sensor_b_mag->connect_to(
+  //     new SKOutputNumber(kSKPathkMagNoise, ""));
+
+  // This report is a consolidation of all the above magnetic cal
+  // values and will need a custom instrument to display.
+  // auto* sensor_mag_cal = new MagCalValues(
+  //     orientation_sensor, ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  // sensor_mag_cal->connect_to(
+  //     new SKOutputMagCal(kSKPathkMagCalValues, ""));
 
   // Create a BME280, which represents the physical sensor.
   // 0x77 is the default address. Some chips use 0x76, which is shown here.
