@@ -11,7 +11,7 @@
  *   * Attitude (yaw, pitch, roll) output
  *   * Magnetic Heading (Compass reading corrected for deviations)
  *   * Physical switch to trigger saving of magnetic calibration
- *   * Tenperature output (taken from the sensor IC and corrected)
+ *   * Temperature output (taken from the sensor IC and corrected)
  *   * Acceleration in X,Y, Z axes
  *   * Turn, Pitch, and Roll Rates
  * Some example outputs are commented out by default: read the associated
@@ -106,7 +106,7 @@ ReactESP app([]() {
    * @see https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
    *
    * Vessel heading can be reported as headingCompass (uncorrected for
-   * Deviation), headingMagnetic (corrected for Devations),
+   * deviation), headingMagnetic (corrected for deviations),
    * or as part of an attitude data group (i.e. yaw, pitch, roll).
    * All three paths are defined in the Signal K spec and have default
    * display widgets in the Signal K Instrument Panel.
@@ -143,10 +143,10 @@ ReactESP app([]() {
   const char* kSKPathMagFitTrial     = "orientation.calibration.magfittrial";
   const char* kSKPathMagSolver       = "orientation.calibration.magsolver";
   //const char* kSKPathMagInclination  = "orientation.calibration.maginclination";
-  //const char* kSKPathkMagBValue      = "orientation.calibration.magmagnitude";
-  //const char* kSKPathkMagBValueTrial = "orientation.calibration.magmagnitudetrial";
-  //const char* kSKPathkMagNoise       = "orientation.calibration.magnoise";
-  //const char* kSKPathkMagCalValues   = "orientation.calibration.magvalues";
+  //const char* kSKPathMagBValue      = "orientation.calibration.magmagnitude";
+  //const char* kSKPathMagBValueTrial = "orientation.calibration.magmagnitudetrial";
+  //const char* kSKPathMagNoise       = "orientation.calibration.magnoise";
+  //const char* kSKPathMagCalValues   = "orientation.calibration.magvalues";
 
   /**
    * If you are creating a new Signal K path that does not
@@ -227,6 +227,10 @@ ReactESP app([]() {
   //   const char* kConfigPathTurnRate       = "/sensors/rateOfTurn/settings";
   //   const char* kConfigPathAccelXYZ       = "/sensors/acceleration/settings";
   //   const char* kConfigPathAccelXYZ_SK    = "/sensors/acceleration/sk";
+  //   const char *kConfigPathRollRate = "/sensors/rollRate/settings";
+  //   const char *kConfigPathRollRate_SK = "/sensors/rollRate/sk";
+  //   const char *kConfigPathPitchRate = "/sensors/pitchRate/settings";
+  //   const char *kConfigPathPitchRate_SK = "/sensors/pitchRate/sk";
   //   const char* kConfigPathTemperature    = "/sensors/temperature/settings";
   //   const char* kConfigPathTemperature_SK = "/sensors/temperature/sk";
 
@@ -255,7 +259,7 @@ ReactESP app([]() {
    * build.h file (#define FUSION_HZ), currently set to 40 Hz. Fusion
    * calculations are run at that same rate. This is different than, and
    * usually faster than, the rate at which orientation parameters are output.
-   * Reportng orientation values within SensESP can happen at any desired
+   * Reporting orientation values within SensESP can happen at any desired
    * rate, though if it is more often than the fusion rate then
    * there will be duplicated values. This example uses a 10 Hz output rate.
    * It is not necessary that all the values be output at the same rate (for
@@ -319,36 +323,36 @@ ReactESP app([]() {
   sensor_cal_order->connect_to(
       new SKOutputNumber(kSKPathMagSolver, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
+  // auto* sensor_mag_inclination = new OrientationValues(
   //     orientation_sensor, OrientationValues::kMagInclination,
   //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
+  // sensor_mag_inclination->connect_to(
   //     new SKOutputNumber(kSKPathMagInclination, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
+  // auto* sensor_mag_b_value = new OrientationValues(
   //     orientation_sensor, OrientationValues::kMagFieldMagnitude,
   //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagBValue, ""));
+  // sensor_mag_b_value->connect_to(
+  //     new SKOutputNumber(kSKPathMagBValue, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
+  // auto* sensor_mag_b_value_trial = new OrientationValues(
   //     orientation_sensor, OrientationValues::kMagFieldMagnitudeTrial,
   //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagBValueTrial, ""));
+  // sensor_mag_b_value_trial->connect_to(
+  //     new SKOutputNumber(kSKPathMagBValueTrial, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
+  // auto* sensor_mag_noise = new OrientationValues(
   //     orientation_sensor, OrientationValues::kMagNoiseCovariance,
   //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagNoise, ""));
+  // sensor_mag_noise->connect_to(
+  //     new SKOutputNumber(kSKPathMagNoise, ""));
 
   // This report is a consolidation of all the above magnetic cal
   // values and will need a custom instrument to display.
   // auto* sensor_mag_cal = new MagCalValues(
   //     orientation_sensor, ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
   // sensor_mag_cal->connect_to(
-  //     new SKOutputMagCal(kSKPathkMagCalValues, ""));
+  //     new SKOutputMagCal(kSKPathMagCalValues, ""));
 
   /**
    * Following section monitors a physical switch that, when pressed,
@@ -391,13 +395,13 @@ ReactESP app([]() {
   //       orientation_sensor, OrientationValues::kRateOfRoll,
   //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathRollRate);
   //   sensor_roll_rate->connect_to(
-  //       new SKOutputNumber(kSKPathRollRate, kConfigPathRollRate_SK));
+  //       new SKOutputNumber(kSKPathRollRate, kConfigPathRollRate_SK, metadata_rate_of_roll));
 
   //   auto* sensor_pitch_rate = new OrientationValues(
   //       orientation_sensor, OrientationValues::kRateOfPitch,
   //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathPitchRate);
   //   sensor_pitch_rate->connect_to(
-  //       new SKOutputNumber(kSKPathPitchRate, kConfigPathPitchRate_SK));
+  //       new SKOutputNumber(kSKPathPitchRate, kConfigPathPitchRate_SK, metadata_rate_of_pitch));
 
   // TODO - it makes sense to send all three accel values (XYZ) in
   // one SK package. The needed data structure is not yet defined in
@@ -406,7 +410,7 @@ ReactESP app([]() {
   //       orientation_sensor, OrientationValues::kAccelerationX,
   //       ORIENTATION_REPORTING_INTERVAL_MS, kConfigPathAccelXYZ);
   //   sensor_accel_x->connect_to(
-  //       new SKOutputNumber(kSKPathAccel, kConfigPathAccelXYZ_SK));
+  //       new SKOutputNumber(kSKPathAccel, kConfigPathAccelXYZ_SK, metadata_accel));
 
   //   auto* sensor_temperature =
   //       new OrientationValues(orientation_sensor,
