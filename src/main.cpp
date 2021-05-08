@@ -18,6 +18,9 @@
 #include "sensors/bme280.h"
 #include "transforms/linear.h"
 #include "transforms/angle_correction.h"
+#include "sensors/digital_input.h"
+#include "system/lambda_consumer.h"
+#include "transforms/debounce.h"
 #include "sensesp_app_builder.h"
 // If using the Temperature report, then include linear.h as the
 // linear transform enables temperature readings to be calibrated.
@@ -32,6 +35,8 @@
 #elif defined( ESP32 )
   #define PIN_I2C_SDA (21)  //Adjust to your board. A value of -1
   #define PIN_I2C_SCL (22)  // will use default Arduino pins.
+  #define PIN_SWITCH_CAL_SAVE (25)  // When brought LOW, will save magnetic calibration
+  #define SWITCH_ACTIVE_STATE (0)   // Input is LOW when Switch is pushed
 #endif
 
 // How often orientation parameters are published via Signal K message
@@ -111,11 +116,11 @@ ReactESP app([]() {
   const char* kSKPathMagFit          = "orientation.calibration.magfit";
   const char* kSKPathMagFitTrial     = "orientation.calibration.magfittrial";
   const char* kSKPathMagSolver       = "orientation.calibration.magsolver";
-  //const char* kSKPathMagInclination  = "orientation.calibration.maginclination";
-  //const char* kSKPathkMagBValue      = "orientation.calibration.magmagnitude";
-  //const char* kSKPathkMagBValueTrial = "orientation.calibration.magmagnitudetrial";
-  //const char* kSKPathkMagNoise       = "orientation.calibration.magnoise";
-  //const char* kSKPathkMagCalValues   = "orientation.calibration.magvalues";
+  const char* kSKPathMagInclination  = "orientation.calibration.maginclination";
+  const char* kSKPathMagBValue      = "orientation.calibration.magmagnitude";
+  const char* kSKPathMagBValueTrial = "orientation.calibration.magmagnitudetrial";
+  const char* kSKPathMagNoise       = "orientation.calibration.magnoise";
+  const char* kSKPathMagCalValues   = "orientation.calibration.magvalues";
 
   /**
    * If you are creating a new Signal K path that does not
@@ -285,36 +290,72 @@ ReactESP app([]() {
   sensor_cal_order->connect_to(
       new SKOutputNumber(kSKPathMagSolver, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
-  //     orientation_sensor, OrientationValues::kMagInclination,
-  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathMagInclination, ""));
+  auto* sensor_b_mag = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagInclination,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_b_mag->connect_to(
+      new SKOutputNumber(kSKPathMagInclination, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
-  //     orientation_sensor, OrientationValues::kMagFieldMagnitude,
-  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagBValue, ""));
+  auto* sensor_mag_inclination = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagInclination,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_mag_inclination->connect_to(
+      new SKOutputNumber(kSKPathMagInclination, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
-  //     orientation_sensor, OrientationValues::kMagFieldMagnitudeTrial,
-  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagBValueTrial, ""));
+  auto* sensor_mag_b_value = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagFieldMagnitude,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_mag_b_value->connect_to(
+      new SKOutputNumber(kSKPathMagBValue, ""));
 
-  // auto* sensor_b_mag = new OrientationValues(
-  //     orientation_sensor, OrientationValues::kMagNoiseCovariance,
-  //     ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_b_mag->connect_to(
-  //     new SKOutputNumber(kSKPathkMagNoise, ""));
+  auto* sensor_mag_b_value_trial = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagFieldMagnitudeTrial,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_mag_b_value_trial->connect_to(
+      new SKOutputNumber(kSKPathMagBValueTrial, ""));
+
+  auto* sensor_mag_noise = new OrientationValues(
+      orientation_sensor, OrientationValues::kMagNoiseCovariance,
+      ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_mag_noise->connect_to(
+      new SKOutputNumber(kSKPathMagNoise, ""));
 
   // This report is a consolidation of all the above magnetic cal
   // values and will need a custom instrument to display.
-  // auto* sensor_mag_cal = new MagCalValues(
-  //     orientation_sensor, ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
-  // sensor_mag_cal->connect_to(
-  //     new SKOutputMagCal(kSKPathkMagCalValues, ""));
+  auto* sensor_mag_cal = new MagCalValues(
+      orientation_sensor, ORIENTATION_REPORTING_INTERVAL_MS * 10, "");
+  sensor_mag_cal->connect_to(
+      new SKOutputMagCal(kSKPathMagCalValues, ""));
+
+    /**
+   * Following section monitors a physical switch that, when pressed,
+   * saves the sensor's current magnetic calibration to non-volatile
+   * memory. Comment/uncomment the following as needed.
+   */
+  // Monitor a button every read_interval ms for CHANGEs in state.
+  // No web interface path is supplied, so interval won't be adjustable.
+  // Note INPUT_PULLUP may need to change depending on how button is wired.
+  const int kReadInterval = 100;
+  auto* button_watcher = new DigitalInputChange(
+      PIN_SWITCH_CAL_SAVE, INPUT_PULLUP, CHANGE, kReadInterval, "");
+  // Create a debounce transform, also with no web interface.
+  const int kDebounceDelay = 350; // only react to pushes >350 ms + kReadInterval
+  auto* debounce = new DebounceInt(kDebounceDelay, "");
+  // Define the action taken when button is active and debounce has elapsed.
+  // Provide it with the context of orientation_sensor so it can access save fcn.
+  auto save_mcal_function = [orientation_sensor](int input) {
+    debugI("\n\n\n\nButton pressed!\n\n\n\n");
+    if (input == SWITCH_ACTIVE_STATE) {
+      orientation_sensor->sensor_interface_->SaveMagneticCalibration();
+      debugI("\n\n\nMag Cal saved\n\n\n");
+    }
+  };
+  auto* button_consumer = new LambdaConsumer<int>(save_mcal_function);
+  // Connect the button -> debounce -> save magnetic calibration fcn
+  button_watcher->connect_to(debounce)->connect_to(button_consumer);
+  /**
+   * End of physical switch section.
+   */
 
   // Create a BME280, which represents the physical sensor.
   // 0x77 is the default address. Some chips use 0x76, which is shown here.
